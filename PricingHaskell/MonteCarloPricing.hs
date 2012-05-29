@@ -18,12 +18,15 @@ import Control.Monad.ST
 import PricingTypesS      -- data types used
 
 -- the actual computation to be carried out is defined in here
-import PricingExample1 -- function example<N>_init::Integer->Pricing_Data
+import PricingExample2 -- function example<N>_init::Integer->Pricing_Data    -- Change output here
 
 --import SobolUtil(floor_log2)
 
 import Data.Bits
 
+-- Eden imports
+import Control.Parallel.Eden.EdenSkel.MapSkels as Ed
+import Data.List.Split
 type Index = Integer
 
 
@@ -305,7 +308,32 @@ sobolRecMap conf (l, u) =
 ------------------------------------------------------------
 -------------  FINALLY MAP-REDUCE THE RESULT  --------------
 ------------------------------------------------------------
-
+mc_pricing_parMap :: Pricing_Data -> SpecReal -- output: one final price
+mc_pricing_parMap l =   let zs :: [[[SpecReal]]]
+                            zs = Ed.parMap ( black_scholes l 
+                                           . brownian_bridge_gen l 
+                                           . gaussian 
+                                           . sobolInd l) [1..num_iters l]
+                            -- payoff = call_payoff 4000 
+                       in  (mc_red l zs)
+                       
+mc_pricing_ranch :: Pricing_Data -> SpecReal -- output: one final price
+mc_pricing_ranch l =   let  zs = ( black_scholes l 
+                                   . brownian_bridge_gen l 
+                                   . gaussian 
+                                   . sobolInd l) 
+                       in  Ed.ranch (\x -> x) (mc_red l) zs [1..num_iters l]  -- change to differen ranch versions
+                       
+                        
+                       
+mc_pricing_farm :: Pricing_Data -> SpecReal -- output: one final price
+mc_pricing_farm l = let zs = ( black_scholes l 
+                               . brownian_bridge_gen l 
+                               . gaussian 
+                               . sobolInd l) 
+                        e = Ed.farm (\x -> splitEvery (length x `div` 4) x) (foldr (++) [] ) (zs) [1..num_iters l]
+                    in  (mc_red l e)
+                       
 
 -- The Monte-Carlo aggregation needs to average over payoffs from
 -- all samples (one sample being a set of trajectories).
@@ -350,7 +378,7 @@ main = do args <- getArgs
           let n = if null args then 100000 else read (head args)
               conf = example_init n -- all examples should export this name
               ----------------------
-              res    = mc_pricing conf
+              res    = mc_pricing_parMap conf      -- change relevante princing function
               resopt = tiledSkeleton conf 32 (mc_pricing_chunk conf) 
           putStrLn ("Config: " ++ show n ++ " iterations")
           putStrLn ("Computed opt: " ++ show resopt)

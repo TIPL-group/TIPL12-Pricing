@@ -4,7 +4,36 @@ V.1:
 -----
 Contains the base code in unmodified form. 
 
-hej
 
 
-dav
+COMPILE / RUN
+--------------
+seq:
+ghc -O2 -XFlexibleInstances -XRecordWildCards -o test MonteCarloPricing.hs -rtsopts
+./test +RTS -s
+
+
+
+EXPECTED OUTPUT
+-------------------
+Expected ouput from seq Example 1:
+
+Config: 100000 iterations
+Computed opt: 169.86431350628393
+Computed:     169.8643135062837
+
+
+Expected ouput from seq Example 2:
+
+Config: 100000 iterations
+Computed opt: 937.2784005675547
+Computed:     937.2784005682386
+
+
+
+TIMINGS
+-----------
+Total wall clock time (-s) on my pc
+
+Seq ex1: 0.55s
+Seq ex2: 5.77s
