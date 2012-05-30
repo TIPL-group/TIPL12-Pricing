@@ -8,10 +8,27 @@ Contains the base code in unmodified form.
 
 COMPILE / RUN
 --------------
+add to ~/.bash_profile: export PATH=~/bin:$PATH
+mkdir ~/bin
+cd ~/bin
+ln -s  ../../berthold/Haskell/bin/* .
+cabal update
+cabal install split
+cabal install edenskel
+
+
 seq:
 ghc -O2 -XFlexibleInstances -XRecordWildCards -o test MonteCarloPricing.hs -rtsopts
 ./test +RTS -s
 
+
+eden:
+ghc -O2 -XFlexibleInstances -XRecordWildCards -o test MonteCarloPricing.hs -rtsopts -parcp
+./test +RTS -s -N4
+
+edentv:
+ghc -O2 -XFlexibleInstances -XRecordWildCards -o test MonteCarloPricing.hs -rtsopts -parcp -eventlog
+./test +RTS -N4 -l    
 
 
 EXPECTED OUTPUT
