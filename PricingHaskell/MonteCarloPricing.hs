@@ -353,6 +353,6 @@ main = do args <- getArgs
               res    = mc_pricing conf
               resopt = tiledSkeleton conf 32 (mc_pricing_chunk conf) 
           putStrLn ("Config: " ++ show n ++ " iterations")
-          putStrLn ("Computed opt: " ++ show resopt)
+          --putStrLn ("Computed opt: " ++ show resopt)
           putStrLn ("Computed:     " ++ show res)
 
