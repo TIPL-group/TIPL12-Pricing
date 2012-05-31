@@ -18,7 +18,7 @@ import Control.Monad.ST
 import PricingTypesS      -- data types used
 
 -- the actual computation to be carried out is defined in here
-import PricingExample1 -- function example<N>_init::Integer->Pricing_Data    -- Change output here
+import PricingExample2 -- function example<N>_init::Integer->Pricing_Data    -- Change output here
 
 --import SobolUtil(floor_log2)
 
