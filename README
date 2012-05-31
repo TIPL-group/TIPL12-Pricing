@@ -28,7 +28,7 @@ ghc -O2 -XFlexibleInstances -XRecordWildCards -o test MonteCarloPricing.hs -rtso
 
 edentv:
 ghc -O2 -XFlexibleInstances -XRecordWildCards -o test MonteCarloPricing.hs -rtsopts -parcp -eventlog
-./test +RTS -N4 -l    
+./test 1000 +RTS -N4 -l    
 
 
 EXPECTED OUTPUT
@@ -54,3 +54,6 @@ Total wall clock time (-s) on my pc
 
 Seq ex1: 0.55s
 Seq ex2: 5.77s
+
+
+

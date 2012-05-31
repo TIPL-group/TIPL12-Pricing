@@ -378,9 +378,10 @@ main = do args <- getArgs
           let n = if null args then 100000 else read (head args)
               conf = example_init n -- all examples should export this name
               ----------------------
-              res    = mc_pricing_parMap conf      -- change relevante princing function
+              res    = mc_pricing_farm conf      -- change relevante princing function
               resopt = tiledSkeleton conf 32 (mc_pricing_chunk conf) 
           putStrLn ("Config: " ++ show n ++ " iterations")
-          putStrLn ("Computed opt: " ++ show resopt)
           putStrLn ("Computed:     " ++ show res)
+          --putStrLn ("Computed opt: " ++ show resopt)
+          
 
