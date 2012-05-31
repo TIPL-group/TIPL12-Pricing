@@ -1,11 +1,5 @@
 TIPL Monte Carlo pricing code. 
 
-V.1: 
------
-Contains the base code in unmodified form. 
-
-
-
 COMPILE / RUN
 --------------
 add to ~/.bash_profile: export PATH=~/bin:$PATH
@@ -20,7 +14,6 @@ cabal install edenskel
 seq:
 ghc -O2 -XFlexibleInstances -XRecordWildCards -o test MonteCarloPricing.hs -rtsopts
 ./test +RTS -s
-
 
 eden:
 ghc -O2 -XFlexibleInstances -XRecordWildCards -o test MonteCarloPricing.hs -rtsopts -parcp
@@ -47,13 +40,7 @@ Computed opt: 937.2784005675547
 Computed:     937.2784005682386
 
 
-
-TIMINGS
------------
-Total wall clock time (-s) on my pc
-
-Seq ex1: 0.55s
-Seq ex2: 5.77s
-
-
-
+BRANCHES
+-------------
+master: Eden || of code
+seq: The original sequential code

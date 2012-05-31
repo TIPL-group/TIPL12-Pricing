@@ -13,6 +13,8 @@ import Data.List          -- HOFs for lists
 import qualified Data.Vector.Mutable as M
 import qualified Data.Vector as V
 import Control.Monad.ST
+import Control.Monad
+import Control.DeepSeq
 
 -- all types are imported from here
 import PricingTypesS      -- data types used
@@ -332,7 +334,7 @@ mc_pricing_farm l = let zs = ( black_scholes l
                                . gaussian 
                                . sobolInd l) 
                         e = Ed.farm (\x -> splitEvery (length x `div` 4) x) (foldr (++) [] ) (zs) [1..num_iters l]
-                    in  (mc_red l e)
+                    in  (mc_red_farm l e)
                        
 
 -- The Monte-Carlo aggregation needs to average over payoffs from
@@ -344,6 +346,15 @@ mc_red config samples = factor * sum gains
           factor = 1 / (fromIntegral (num_iters config))
           -- length samples == num_iters config
 
+mc_red_farm :: Pricing_Data -> [[[SpecReal]]] -> SpecReal
+mc_red_farm config samples = factor * sum gains 
+    where gains = Ed.farm (splitEvery (length samples `div` 4)) (map sum) (payoff config) samples
+          payoff = product_payoff config
+          factor = 1 / (fromIntegral (num_iters config))          
+            
+         
+          
+          
 
 mc_pricing :: Pricing_Data -> SpecReal -- output: one final price
 mc_pricing l = let  zs :: [[[SpecReal]]]
@@ -377,11 +388,24 @@ main :: IO()
 main = do args <- getArgs
           let n = if null args then 100000 else read (head args)
               conf = example_init n -- all examples should export this name
-              ----------------------
+              ------------------
               res    = mc_pricing_farm conf      -- change relevante princing function
-              resopt = tiledSkeleton conf 32 (mc_pricing_chunk conf) 
+              --resopt = tiledSkeleton conf 32 (mc_pricing_chunk conf) 
           putStrLn ("Config: " ++ show n ++ " iterations")
           putStrLn ("Computed:     " ++ show res)
           --putStrLn ("Computed opt: " ++ show resopt)
           
 
+
+    
+    
+-- main = do 
+    -- args <- getArgs
+    -- let n = if null args then 100000 else read (head args)
+        -- conf = example_init n -- all examples should export this name
+              --------------------
+    -- res <- forM [1..400] (\z -> return $ mc_pricing_farm conf )     -- change relevante princing function
+              --resopt = tiledSkeleton conf 32 (mc_pricing_chunk conf) 
+    -- putStrLn ("Config: " ++ show n ++ " iterations")
+    -- putStrLn ("Computed:     " ++ show (deepseq res (head res)))
+          --putStrLn ("Computed opt: " ++ show resopt)
