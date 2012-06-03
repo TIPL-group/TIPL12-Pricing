@@ -1,4 +1,4 @@
-module Statistics.MiniNest where
+module MiniNest where
 
 import Control.Monad (forM)
 import Data.IORef

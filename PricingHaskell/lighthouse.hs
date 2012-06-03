@@ -26,7 +26,7 @@
 
 import qualified Data.Vector.Unboxed as UV
 import Control.Monad (mapM)
-import Statistics.MiniNest
+import MiniNest
 import System.Random (randomIO)
 import Text.Printf
 

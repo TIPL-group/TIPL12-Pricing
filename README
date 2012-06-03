@@ -17,11 +17,11 @@ ghc -O2 -XFlexibleInstances -XRecordWildCards -o test MonteCarloPricing.hs -rtso
 
 eden:
 ghc -O2 -XFlexibleInstances -XRecordWildCards -o test MonteCarloPricing.hs -rtsopts -parcp
-./test +RTS -s -N4
+./test +RTS -s -N8
 
 edentv:
 ghc -O2 -XFlexibleInstances -XRecordWildCards -o test MonteCarloPricing.hs -rtsopts -parcp -eventlog
-./test 1000 +RTS -N4 -l    
+./test 1000 +RTS -N8 -l    
 
 
 EXPECTED OUTPUT
