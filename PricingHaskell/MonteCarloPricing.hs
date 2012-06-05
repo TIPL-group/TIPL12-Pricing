@@ -27,9 +27,11 @@ import PricingExample2 -- function example<N>_init::Integer->Pricing_Data    -- 
 import Data.Bits
 
 -- Eden imports
-import Control.Parallel.Eden.EdenSkel.MapSkels as Ed
+import Control.Parallel.Eden.EdenSkel.MapSkels
+import Control.Parallel.Eden.EdenSkel.WPSkels
 import Control.Parallel.Eden.EdenSkel.Auxiliary
---import Data.List.Split
+import Control.Parallel.Eden
+
 type Index = Integer
 
 
@@ -291,23 +293,29 @@ black_scholes l = mkPrices l . correlate_deltas l . mkDeltas
 ---- OPTIMIZATIONS: TILING ETC.                          ---
 ------------------------------------------------------------
 
--- TODO: this works only when `chunk' divides `num_iters' => make 
---       it correct in the general case 
+
 tiledSkeleton :: Pricing_Data -> Integer -> ((Integer,Integer) -> SpecReal) -> SpecReal
 tiledSkeleton conf chunk fun = 
   let divides = (num_iters conf) `mod` chunk == 0
       extra   = if (divides) then [] else [num_iters conf]
       iv = zip [1,chunk+1..] ([chunk, 2*chunk .. num_iters conf] ++ extra )
---[(i+1, i+chunk) | j <- [1..(num_iters conf) `div` chunk], let i=(j-1)*chunk]
   in (sum . map fun) iv
 
+tiledSkeleton_workpool :: Pricing_Data -> Integer -> ((Integer,Integer) -> SpecReal) -> SpecReal
+tiledSkeleton_workpool conf chunk fun = 
+  let divides = (num_iters conf) `mod` chunk == 0
+      extra   = if (divides) then [] else [num_iters conf]
+      iv = zip [1,chunk+1..] ([chunk, 2*chunk .. num_iters conf] ++ extra )
+   --   e = workpoolReduce (noPe) (1) (\r' r -> r + r') (0) (fun) (iv)
+      e = workpool (noPe) (20) (fun) (iv)
+  in sum e  
+  
 tiledSkeleton_farm :: Pricing_Data -> Integer -> ((Integer,Integer) -> SpecReal) -> SpecReal  
 tiledSkeleton_farm conf chunk fun = 
   let divides = (num_iters conf) `mod` chunk == 0
       extra   = if (divides) then [] else [num_iters conf]
       iv = zip [1,chunk+1..] ([chunk, 2*chunk .. num_iters conf] ++ extra )
---[(i+1, i+chunk) | j <- [1..(num_iters conf) `div` chunk], let i=(j-1)*chunk]
-      e = Ed.farm (splitIntoN 8) (map sum) (fun) iv
+      e = farm (splitIntoN noPe) (map sum) (fun) iv
   in sum e
 
 tiledSkeleton_offlineFarm :: Pricing_Data -> Integer -> ((Integer,Integer) -> SpecReal) -> SpecReal  
@@ -315,8 +323,7 @@ tiledSkeleton_offlineFarm conf chunk fun =
   let divides = (num_iters conf) `mod` chunk == 0
       extra   = if (divides) then [] else [num_iters conf]
       iv = zip [1,chunk+1..] ([chunk, 2*chunk .. num_iters conf] ++ extra )
---[(i+1, i+chunk) | j <- [1..(num_iters conf) `div` chunk], let i=(j-1)*chunk]
-      e = Ed.offlineFarm 8 (splitIntoN 8) (map sum) (fun) iv
+      e = offlineFarm noPe  (splitIntoN noPe ) (map sum) (fun) iv
   in sum e
 
 tiledSkeleton_parMap :: Pricing_Data -> Integer -> ((Integer,Integer) -> SpecReal) -> SpecReal
@@ -324,8 +331,7 @@ tiledSkeleton_parMap conf chunk fun =
   let divides = (num_iters conf) `mod` chunk == 0
       extra   = if (divides) then [] else [num_iters conf]
       iv = zip [1,chunk+1..] ([chunk, 2*chunk .. num_iters conf] ++ extra )
---[(i+1, i+chunk) | j <- [1..(num_iters conf) `div` chunk], let i=(j-1)*chunk]
-  in (sum . Ed.parMap fun) iv
+  in (sum . parMap fun) iv
 
 
   
@@ -350,29 +356,20 @@ mc_pricing l = let  zs :: [[[SpecReal]]]
 
 mc_pricing_parMap :: Pricing_Data -> SpecReal -- output: one final price
 mc_pricing_parMap l =   let zs :: [[[SpecReal]]]
-                            zs = Ed.parMap ( black_scholes l 
+                            zs = parMap ( black_scholes l 
                                            . brownian_bridge_gen l 
                                            . gaussian 
                                            . sobolInd l) [1..num_iters l]
                             -- payoff = call_payoff 4000 
                        in  (mc_red l zs)
                        
-mc_pricing_ranch :: Pricing_Data -> SpecReal -- output: one final price
-mc_pricing_ranch l =   let  zs = ( black_scholes l 
-                                   . brownian_bridge_gen l 
-                                   . gaussian 
-                                   . sobolInd l) 
-                       in  Ed.ranch (\x -> x) (mc_red l) zs [1..num_iters l]  -- change to differen ranch versions
-                       
-                        
-                       
 mc_pricing_farm :: Pricing_Data -> SpecReal -- output: one final price
 mc_pricing_farm l = let zs = ( black_scholes l 
                                . brownian_bridge_gen l 
                                . gaussian 
                                . sobolInd l) 
-                        e = Ed.farm (splitIntoN 8) (foldr (++) []) (zs) [1..num_iters l]
-                    in  (mc_red_farm l e)
+                        e = farm (splitIntoN noPe ) (foldr (++) []) (zs) [1..num_iters l]
+                    in  (mc_red l e)
                        
 
 -- The Monte-Carlo aggregation needs to average over payoffs from
@@ -384,12 +381,7 @@ mc_red config samples = factor * sum gains
           factor = 1 / (fromIntegral (num_iters config))
           -- length samples == num_iters config
 
-mc_red_farm :: Pricing_Data -> [[[SpecReal]]] -> SpecReal
-mc_red_farm config samples = factor * sum gains 
-    where gains = Ed.farm (splitIntoN 8) (map sum) (payoff config) samples
-          payoff = product_payoff config
-          factor = 1 / (fromIntegral (num_iters config))          
-            
+           
          
 ----------          
 ----- Optimized mc_pricing          
@@ -405,16 +397,6 @@ mc_pricing_chunk conf (lb,ub) = let payoff = product_payoff conf
                                              ( sobolRecMap conf (lb,ub) )
                                 in factor * sum zs
 
-mc_pricing_chunk_farm :: Pricing_Data -> (Integer, Integer) -> SpecReal
-mc_pricing_chunk_farm conf (lb,ub) = let    payoff = product_payoff conf
-                                            factor = 1 / (fromIntegral (num_iters conf))
-                                            zs =     ( payoff conf
-                                                       . black_scholes conf
-                                                       . brownian_bridge_gen conf 
-                                                       . gaussian )          
-                                            e = Ed.farm (splitIntoN 8) (foldr (++) []) (zs) (sobolRecMap conf (lb,ub))
-                                     in factor * sum e
-
 
 -----------------------------------------------
 --- BEGIN MAIN                              ---
@@ -428,22 +410,8 @@ main = do args <- getArgs
               conf = example_init n -- all examples should export this name
               ------------------
               --res    = mc_pricing_farm conf      -- change relevante princing function
-              resopt = tiledSkeleton_farm conf 32 (mc_pricing_chunk conf) 
+              resopt = tiledSkeleton_workpool conf 32 (mc_pricing_chunk conf) 
           putStrLn ("Config: " ++ show n ++ " iterations")
           --putStrLn ("Computed:     " ++ show res)
           putStrLn ("Computed opt: " ++ show resopt)
           
-
-
-    
-    
--- main = do 
-    -- args <- getArgs
-    -- let n = if null args then 100000 else read (head args)
-        -- conf = example_init n -- all examples should export this name
-              --------------------
-    -- res <- forM [1..400] (\z -> return $ mc_pricing_farm conf )     -- change relevante princing function
-              --resopt = tiledSkeleton conf 32 (mc_pricing_chunk conf) 
-    -- putStrLn ("Config: " ++ show n ++ " iterations")
-    -- putStrLn ("Computed:     " ++ show (deepseq res (head res)))
-          --putStrLn ("Computed opt: " ++ show resopt)
