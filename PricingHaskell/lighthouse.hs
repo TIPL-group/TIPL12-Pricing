@@ -98,20 +98,20 @@ explore' ranGen obj logLstar =
                            then Lighthouse u' v' x' y' logL' (lhLogWt obj)
                            else Lighthouse u v x y logL (lhLogWt obj)
                     
-                    (accept, reject) = if logL' > logLstar
+                    (accept', reject') = if logL' > logLstar
                                        then (accept + 1, reject)
                                        else (accept, reject + 1)
                     
                     -- Refine step-size to let acceptance ratio converge around 50%
-                    step = if accept > reject
-                           then step * exp(1.0 / accept)  
-                           else if accept < reject
-                                then step / exp(1.0 / reject)
+                    step' = if accept' > reject'
+                           then step * exp(1.0 / accept')  
+                           else if accept' < reject'
+                                then step / exp(1.0 / reject')
                                 else step
                 in
                     if m == 0
                     then obj'
-                    else exploreRec g2 step (m-1) accept reject (lhU obj') (lhV obj') (lhX obj') (lhY obj') (lhLogL obj')  
+                    else exploreRec g2 step' (m-1) accept' reject' (lhU obj') (lhV obj') (lhX obj') (lhY obj') (lhLogL obj')  
                                              
                       
 
@@ -206,12 +206,14 @@ main = do
     priorSamples <- mapM (\_ -> sampleFromPrior) [1..n]    
     result <- nestedSampling priorSamples explore maxIterations
     let stats = getStats (nsSamples result) (nsLogZ result) 
+    print "IO"
     print result
     print stats
     g <- getStdGen 
     g' <- newStdGen 
     let result' = nestedSampling' g priorSamples (explore' g') maxIterations :: NestedSamplingResult Lighthouse 
     let stats' = getStats (nsSamples result') (nsLogZ result') 
+    print "Pure"
     print result'
     print stats'
       
