@@ -27,7 +27,7 @@
 import qualified Data.Vector.Unboxed as UV
 import Control.Monad (mapM)
 import MiniNest
-import System.Random (randomIO)
+import System.Random (randomIO, RandomGen, random, getStdGen, newStdGen)
 import Text.Printf
 
 data Lighthouse = Lighthouse {
@@ -66,6 +66,57 @@ lhData = UV.fromList [4.73,  0.45, -1.73,  1.09,  2.19,  0.12, 1.31,
                       0.20,  1.58,  1.29, 16.19,  2.75, -2.38, -1.79,
                       6.50,-18.53,  0.72,  0.94,  3.64, 1.94, -0.11, 1.57,  0.57]
 
+-- My Stuff                      
+
+-- |Sample from U[0,1]
+uniform' :: RandomGen a => a -> (Double, a)
+uniform' g = random g
+                      
+-- |Evolve Lighthouse within likelihood constraint
+-- obj: Lighthouse being evolved
+-- logLstar: Likelihood constraint L > Lstar
+explore' :: RandomGen a => a -> Lighthouse -> Double -> Lighthouse
+explore' ranGen obj logLstar =
+    exploreRec ranGen step m accept reject (lhU obj) (lhV obj) (lhX obj) (lhY obj) (lhLogL obj)
+        where 
+            step = 0.1      -- Initial guess suitable step-size in (0,1)
+            m = 20          -- MCMC counter (pre-judged # steps)
+            accept = 0      -- # MCMC acceptances
+            reject = 0      -- # MCMC rejections
+            exploreRec ranGen step m accept reject u v x y logL =
+                -- Trial Lighthouse
+                let (unif1, g1) = uniform' ranGen
+                    (unif2, g2) = uniform' g1
+                    u' = wrapAround $ u + step * (2*unif1 - 1)  -- |move| < step
+                    v' = wrapAround $ v + step * (2*unif2 - 1)  -- |move| < step
+                    x' = 4*u' - 2    -- map to x
+                    y' = 2*v'        -- map to y
+                    logL' = logLhood x' y'
+
+                    -- Accept if and only if within hard likelihood constraint
+                    obj' = if logL' > logLstar
+                           then Lighthouse u' v' x' y' logL' (lhLogWt obj)
+                           else Lighthouse u v x y logL (lhLogWt obj)
+                    
+                    (accept, reject) = if logL' > logLstar
+                                       then (accept + 1, reject)
+                                       else (accept, reject + 1)
+                    
+                    -- Refine step-size to let acceptance ratio converge around 50%
+                    step = if accept > reject
+                           then step * exp(1.0 / accept)  
+                           else if accept < reject
+                                then step / exp(1.0 / reject)
+                                else step
+                in
+                    if m == 0
+                    then obj'
+                    else exploreRec g2 step (m-1) accept reject (lhU obj') (lhV obj') (lhX obj') (lhY obj') (lhLogL obj')  
+                                             
+                      
+
+                      
+                      
 -- |Sample from U[0,1]
 uniform :: IO Double
 uniform = randomIO
@@ -77,6 +128,7 @@ sampleFromPrior = do
     let x=4*u - 2
         y=2*v
     return $ Lighthouse u v x y (logLhood x y) 0
+
 
 -- |Evolve Lighthouse within likelihood constraint
 -- obj: Lighthouse being evolved
@@ -151,9 +203,15 @@ getStats samples logZ =
 main = do
     let n = 100                -- # number of candidate lighthouses
     let maxIterations = 1000   -- # iterates
-    priorSamples <- mapM (\_ -> sampleFromPrior) [1..n]         
+    priorSamples <- mapM (\_ -> sampleFromPrior) [1..n]    
     result <- nestedSampling priorSamples explore maxIterations
     let stats = getStats (nsSamples result) (nsLogZ result) 
     print result
     print stats
-
+    g <- getStdGen 
+    g' <- newStdGen 
+    let result' = nestedSampling' g priorSamples (explore' g') maxIterations :: NestedSamplingResult Lighthouse 
+    let stats' = getStats (nsSamples result') (nsLogZ result') 
+    print result'
+    print stats'
+      

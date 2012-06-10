@@ -3,8 +3,9 @@ module MiniNest where
 import Control.Monad (forM)
 import Data.IORef
 import Data.List (sort)
-import System.Random (randomRIO)
+import System.Random (RandomGen, randomR, randomRIO)
 import Text.Printf
+import Debug.Trace
 
 -- logarithmic addition log(exp(x)+exp(y))
 plus :: Double -> Double -> Double
@@ -29,6 +30,86 @@ class SamplingObject a where
    getLogWt :: a -> Double
    getLogL :: a -> Double
 
+-- My stuff
+   
+data RandomGen g => NSFold a g = NSFold {
+    objsRef :: [a],
+    samplesRef :: [a],
+    hRef :: Double,
+    logZRef :: Double,
+    logWidthRef :: Double,
+    ranGenRef :: g
+    }
+
+nestedSampling' :: (Ord a, SamplingObject a, RandomGen  b) => b -> [a] -> (a -> Double -> a) -> Int -> NestedSamplingResult a
+nestedSampling' ranGen priorSamples explore iterations =
+    let n = length priorSamples
+        state = NSFold {
+            objsRef = priorSamples,        -- Collection of n objects
+            samplesRef = [],              -- Posterior samples
+            hRef = 0,                     -- Information, initially 0
+            logZRef = (-10**37),          -- ln(Evidence Z, initially 0)
+            logWidthRef = getLogWidth n,   -- Outermost interval of prior mass   -- ln(width in prior mass)
+            ranGenRef = ranGen
+            }
+       
+        res = foldl nsfunc state [1..iterations]
+            where
+                nsfunc state _ = 
+                    -- Worst object in collection, with Weight = width * Likelihood
+                    
+                    let objs = objsRef state
+                        logwidth = logWidthRef state
+                        ([worst], objs') = splitAt 1 (sort objs)  -- Get and kill worst object.
+                        worst' = setLogWt worst (logwidth + (getLogL worst))
+
+                        -- Update Evidence Z and Information H
+                        logZ = logZRef state
+                        logZnew = plus logZ (getLogWt worst')
+
+                        -- Copy another object at random.
+                        (objToCopy, ranGenNew) = choice' ranGen objs'
+
+                        -- new likelihood constraint
+                        logLstar = getLogL worst'
+
+                        -- Evolve copied object within constraint
+                        mutatedCopy = explore objToCopy logLstar
+                    
+                        -- Update Information H  
+                        h = hRef state                       
+                        
+                        -- Posterior Samples (optional)
+                        oldSamples = samplesRef state  
+                    
+                    -- Save copied and mutated object. Shrink interval
+                    in
+                        NSFold {
+                            objsRef = (mutatedCopy : objs'),
+                            samplesRef = (worst' : oldSamples),              
+                            hRef = (exp $ getLogWt worst' - logZnew) * (getLogL worst')
+                                    + (exp $ logZ - logZnew) * (h + logZ) - logZnew,                    
+                            logZRef = logZnew,
+                            logWidthRef = logwidth - 1.0 / fromIntegral n,
+                            ranGenRef = ranGenNew
+                        }
+    in    
+        NestedSamplingResult {
+            nsLogZ = logZRef res,
+            nsLogZdelta = sqrt ((hRef res) / fromIntegral n),   -- evidence +- deviation
+            nsInfoNats = hRef res,                              -- information in nats
+            nsSamples = samplesRef res
+        }
+
+-- |choice chooses uniformly at random from a list.    
+choice' :: RandomGen  b => b -> [a] -> (a, b)
+choice' ranGen [x] = (x, ranGen)
+choice' ranGen xs = 
+    let n = length xs
+        (k,g) = randomR (0, n-1) ranGen
+    in (xs !! k, g)
+    
+   
 -- |nestedSampling computes the evidence Z and samples from the posterior.
 -- Args:
 --   priorSamples: a list of samples from the prior.
