@@ -3,7 +3,7 @@ module MiniNest where
 import Control.Monad (forM)
 import Data.IORef
 import Data.List (sort)
-import System.Random (RandomGen, randomR, randomRIO)
+import System.Random (RandomGen, randomR, randomRIO, split)
 import Text.Printf
 import Debug.Trace
 
@@ -101,6 +101,86 @@ nestedSampling' ranGen priorSamples explore iterations =
             nsSamples = samplesRef res
         }
 
+        
+        
+--test [] res = res
+--test (x:xs) res = test xs (x:res)        
+        
+test [] res _ _ _ _ = res
+test (x:xs) res ranGen objs logwidth explore_f = let worst' = setLogWt x (logwidth + (getLogL x))
+                                                     (objToCopy, ranGenNew) = choice' ranGen objs
+                                                     logLstar = getLogL worst'
+                                                     mutatedCopy = explore_f objToCopy logLstar
+                              in test xs ((worst',mutatedCopy):res) ranGenNew objs logwidth explore_f
+        
+nestedSampling_mul' :: (Ord a, SamplingObject a, RandomGen  b) => b -> [a] -> (a -> Double -> a) -> Int -> NestedSamplingResult a
+nestedSampling_mul' ranGen priorSamples explore iterations =
+    let n = length priorSamples
+        state = NSFold {
+            objsRef = priorSamples,        -- Collection of n objects
+            samplesRef = [],              -- Posterior samples
+            hRef = 0,                     -- Information, initially 0
+            logZRef = (-10**37),          -- ln(Evidence Z, initially 0)
+            logWidthRef = getLogWidth n,   -- Outermost interval of prior mass   -- ln(width in prior mass)
+            ranGenRef = ranGen
+            }
+       
+        res = foldl nsfunc state [1..iterations]
+            where
+                nsfunc state _ = 
+                    -- Worst object in collection, with Weight = width * Likelihood
+                    
+                    let objs = objsRef state
+                        logwidth = logWidthRef state
+                        ([worst], objs') = splitAt 1 (sort objs)  -- Get and kill worst object.
+                        --w = drop 1 $ sort (test [worst] [] ranGenRef objs' logwidth explore)
+                        --worst' = setLogWt w (logwidth + (getLogL w))
+                        worst' = setLogWt worst (logwidth + (getLogL worst))
+                        
+                        
+                        
+
+                        -- Update Evidence Z and Information H
+                        logZ = logZRef state
+                        logZnew = plus logZ (getLogWt worst')
+
+                        -- Copy another object at random.
+                        (objToCopy, ranGenNew) = choice' ranGen objs'
+
+                        -- new likelihood constraint
+                        logLstar = getLogL worst'
+
+                        -- Evolve copied object within constraint
+                        mutatedCopy = explore objToCopy logLstar
+                    
+                        -- Update Information H  
+                        h = hRef state                       
+                        
+                        -- Posterior Samples (optional)
+                        oldSamples = samplesRef state  
+                    
+                    -- Save copied and mutated object. Shrink interval
+                    in
+                        NSFold {
+                            objsRef = (mutatedCopy : objs'),
+                            samplesRef = (worst' : oldSamples),              
+                            hRef = (exp $ getLogWt worst' - logZnew) * (getLogL worst')
+                                    + (exp $ logZ - logZnew) * (h + logZ) - logZnew,                    
+                            logZRef = logZnew,
+                            logWidthRef = logwidth - 1.0 / fromIntegral n,
+                            ranGenRef = ranGenNew
+                        }
+    in    
+        NestedSamplingResult {
+            nsLogZ = logZRef res,
+            nsLogZdelta = sqrt ((hRef res) / fromIntegral n),   -- evidence +- deviation
+            nsInfoNats = hRef res,                              -- information in nats
+            nsSamples = samplesRef res
+        }
+        
+        
+        
+        
 -- |choice chooses uniformly at random from a list.    
 choice' :: RandomGen  b => b -> [a] -> (a, b)
 choice' ranGen [x] = (x, ranGen)

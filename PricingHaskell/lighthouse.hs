@@ -241,7 +241,7 @@ getStats samples logZ =
         
 genRandGens :: Int -> [IO StdGen] -> [IO StdGen]
 genRandGens 0 res = res
-genRandGens n res = genRandGens (n-1) ((newStdGen,newStdGen):res)
+genRandGens n res = genRandGens (n-1) ((split newStdGen):res)
           
         {-  
 --test :: Int -> Int -> t -> Int -> Int -> Int
@@ -280,8 +280,8 @@ main = do
     --stdgen <- getStdGen
     --genList :: [(stdGen, stdGen)]
     --let genList = replicate 60 (split g)
-    --let genList = map (\_ -> split g) [1..10]
-    let genList = (genRandGens 10 [])
+    let genList = map (\_ -> split g) [1..10]
+    --let genList = (genRandGens 10 [])
     --res :: [NestedSamplingResult Lighthouse]
     let res = map (\(g1, g2) -> nestedSampling' g1 priorSamples (explore' g2) maxIterations) genList
 
