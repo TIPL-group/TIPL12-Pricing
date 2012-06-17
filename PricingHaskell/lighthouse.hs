@@ -68,14 +68,12 @@ lhData = UV.fromList [4.73,  0.45, -1.73,  1.09,  2.19,  0.12, 1.31,
                       0.20,  1.58,  1.29, 16.19,  2.75, -2.38, -1.79,
                       6.50,-18.53,  0.72,  0.94,  3.64, 1.94, -0.11, 1.57,  0.57]
 
--- My Stuff                      
 
 -- |Sample from U[0,1]
 uniform' :: RandomGen a => a -> (Double, a)
 uniform' g = random g
       
-
--- |Evolve Lighthouse within likelihood constraint
+-- |Evolve Lighthouse within likelihood constraint (pure)
 -- obj: Lighthouse being evolved
 -- logLstar: Likelihood constraint L > Lstar
 explore' :: RandomGen a => a -> Lighthouse -> Double -> Lighthouse
@@ -238,63 +236,56 @@ getStats samples logZ =
           xx = sum [w*(lhX s)^2 | (w,s) <- weightsSamples]
           yy = sum [w*(lhY s)^2 | (w,s) <- weightsSamples]
 
-        
-genRandGens :: Int -> [IO StdGen] -> [IO StdGen]
-genRandGens 0 res = res
-genRandGens n res = genRandGens (n-1) ((split newStdGen):res)
-          
-        {-  
---test :: Int -> Int -> t -> Int -> Int -> Int
---test :: Int -> [(b -> [a] -> (a -> Double -> a) -> Int -> NestedSamplingResult)] -> Int -> Int -> Int -> Int
-test 0 res _ _ _ = res
-test n res priorSamples explore_f maxIterations = do
-                g <- newStdGen 
-                g' <- newStdGen
-                test (n-1) ((nestedSampling' g priorSamples (explore_f g') maxIterations :: NestedSamplingResult Lighthouse):res) (priorSamples) (explore_f) (maxIterations)
-                    
-                --((nestedSampling' g priorSamples (explore_f g') maxIterations :: NestedSamplingResult Lighthouse):res)
--}
-{-main = do
+main = do
     let n = 100                -- # number of candidate lighthouses
-    let maxIterations = 10000   -- # iterates
+    let maxIterations = 1000   -- # iterates
     priorSamples <- mapM (\_ -> sampleFromPrior) [1..n]    
-    --result <- nestedSampling priorSamples explore maxIterations
-    --let stats = getStats (nsSamples result) (nsLogZ result) 
-    --print "IO"
-    --print result
-    --print stats
+
     g <- getStdGen 
     g' <- newStdGen 
     let result' = nestedSampling' g priorSamples (explore' g') maxIterations :: NestedSamplingResult Lighthouse 
     let stats' = getStats (nsSamples result') (nsLogZ result') 
     print "Pure"
     print result'
-    print stats' -}
+    print stats'
       
-      
-main = do
+-- Main function used to explain parallelism.      
+{- main = do
     let n = 100                -- # number of candidate lighthouses
     let maxIterations = 1000   -- # iterates
+    let p = 2                  -- # processes
+    
     priorSamples <- mapM (\_ -> sampleFromPrior) [1..n]    
+        
     g <- getStdGen 
     let genList :: [(StdGen, StdGen)]        
-        genList = foldl (\((a,b):gs) i  -> ((split a):(a,b):gs)) [split g] [1..10]
+        genList = foldl (\((a,b):gs) _  -> ((split a):(a,b):gs)) [split g] [1..10]
         res :: [NestedSamplingResult Lighthouse]
         res = map (\(g1, g2) -> nestedSampling' g1 priorSamples (explore' g2) maxIterations) genList
-
-    let result' = head res
-    let stats' = getStats (nsSamples (head res)) (nsLogZ result')
+                                                
+    let getResults :: Double -> Double -> NestedSamplingResult Lighthouse -> NestedSamplingResult Lighthouse
+        getResults c p nsRes
+            | c == p = NestedSamplingResult {
+                        nsLogZ=(nsLogZ nsRes) / p,
+                        nsLogZdelta=(nsLogZdelta nsRes) / p,  -- evidence +- deviation
+                        nsInfoNats=(nsInfoNats nsRes) / p,   -- information in nats
+                        nsSamples=(nsSamples nsRes) }
+            | otherwise = getResults (c+1) p NestedSamplingResult {
+                                                nsLogZ=nsLogZ nsRes + (nsLogZ (res !! (round c))),
+                                                nsLogZdelta=nsLogZdelta nsRes + (nsLogZdelta (res !! (round c))),  -- evidence +- deviation
+                                                nsInfoNats=nsInfoNats nsRes + (nsInfoNats (res !! (round c))),   -- information in nats
+                                                nsSamples=(nsSamples nsRes)++(nsSamples (res !! (round c))) }
     
-    let result2' = res !! 1
-    let stats2' = getStats (nsSamples (res !! 1)) (nsLogZ result2')
-    --g' <- newStdGen 
-    --let result' = nestedSampling' g priorSamples (explore' g') maxIterations :: NestedSamplingResult Lighthouse 
-    --let stats' = getStats (nsSamples result') (nsLogZ result') 
+    let result' = getResults 0 p NestedSamplingResult {
+                            nsLogZ=0,
+                            nsLogZdelta=0,  -- evidence +- deviation
+                            nsInfoNats=0,   -- information in nats
+                            nsSamples=[] }
     
-    --let results = nestedSampling' g priorSamples (explore' g') maxIterations :: NestedSamplingResult Lighthouse
+    let stats' = getStats (nsSamples result') (nsLogZ result')
+    
+   
     print "Pure"
     print result'
     print stats'
-    print "Pure2"
-    print result2'
-    print stats2'
+    -}
