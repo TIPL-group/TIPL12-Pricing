@@ -277,7 +277,7 @@ main = do
     let maxIterations = 1000   -- # iterates
     priorSamples <- mapM (\_ -> sampleFromPrior) [1..n]    
     g <- getStdGen 
-        let genList :: [(StdGen, StdGen)]        
+    let genList :: [(StdGen, StdGen)]        
         genList = foldl (\((a,b):gs) i  -> ((split a):(a,b):gs)) [split g] [1..10]
         res :: [NestedSamplingResult Lighthouse]
         res = map (\(g1, g2) -> nestedSampling' g1 priorSamples (explore' g2) maxIterations) genList
