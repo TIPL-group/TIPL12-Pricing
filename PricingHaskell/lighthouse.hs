@@ -277,13 +277,10 @@ main = do
     let maxIterations = 1000   -- # iterates
     priorSamples <- mapM (\_ -> sampleFromPrior) [1..n]    
     g <- getStdGen 
-    --stdgen <- getStdGen
-    --genList :: [(stdGen, stdGen)]
-    --let genList = replicate 60 (split g)
-    let genList = map (\_ -> split g) [1..10]
-    --let genList = (genRandGens 10 [])
-    --res :: [NestedSamplingResult Lighthouse]
-    let res = map (\(g1, g2) -> nestedSampling' g1 priorSamples (explore' g2) maxIterations) genList
+        let genList :: [(StdGen, StdGen)]        
+        genList = foldl (\((a,b):gs) i  -> ((split a):(a,b):gs)) [split g] [1..10]
+        res :: [NestedSamplingResult Lighthouse]
+        res = map (\(g1, g2) -> nestedSampling' g1 priorSamples (explore' g2) maxIterations) genList
 
     let result' = head res
     let stats' = getStats (nsSamples (head res)) (nsLogZ result')
