@@ -27,8 +27,10 @@
 import qualified Data.Vector.Unboxed as UV
 import Control.Monad (mapM)
 import MiniNest
-import System.Random (randomIO, RandomGen, random, getStdGen, newStdGen)
+import System.Random (StdGen, randomIO, RandomGen, random, getStdGen, newStdGen, split)
 import Text.Printf
+import Data.List (sort)
+
 
 data Lighthouse = Lighthouse {
     lhU :: Double,
@@ -71,13 +73,14 @@ lhData = UV.fromList [4.73,  0.45, -1.73,  1.09,  2.19,  0.12, 1.31,
 -- |Sample from U[0,1]
 uniform' :: RandomGen a => a -> (Double, a)
 uniform' g = random g
-                      
+      
+
 -- |Evolve Lighthouse within likelihood constraint
 -- obj: Lighthouse being evolved
 -- logLstar: Likelihood constraint L > Lstar
 explore' :: RandomGen a => a -> Lighthouse -> Double -> Lighthouse
 explore' ranGen obj logLstar =
-    exploreRec ranGen step m accept reject (lhU obj) (lhV obj) (lhX obj) (lhY obj) (lhLogL obj)
+    exploreRec ranGen step m accept reject (lhU obj) (lhV obj) (lhX obj) (lhY obj) (lhLogL obj) 
         where 
             step = 0.1      -- Initial guess suitable step-size in (0,1)
             m = 20          -- MCMC counter (pre-judged # steps)
@@ -94,27 +97,62 @@ explore' ranGen obj logLstar =
                     logL' = logLhood x' y'
 
                     -- Accept if and only if within hard likelihood constraint
-                    obj' = if logL' > logLstar
-                           then Lighthouse u' v' x' y' logL' (lhLogWt obj)
-                           else Lighthouse u v x y logL (lhLogWt obj)
-                    
-                    (accept', reject') = if logL' > logLstar
-                                       then (accept + 1, reject)
-                                       else (accept, reject + 1)
+                    (accept', reject', obj')
+                        | logL' > logLstar = (accept+1, reject, Lighthouse u' v' x' y' logL' (lhLogWt obj))
+                        | otherwise = (accept, reject+1, Lighthouse u v x y logL (lhLogWt obj))
+
                     
                     -- Refine step-size to let acceptance ratio converge around 50%
-                    step' = if accept' > reject'
-                           then step * exp(1.0 / accept')  
-                           else if accept' < reject'
-                                then step / exp(1.0 / reject')
-                                else step
+                    step'
+                        | accept' > reject' = step * exp(1.0 / accept')
+                        | accept' < reject' = step / exp(1.0 / reject')
+                        | otherwise = step
                 in
                     if m == 0
                     then obj'
-                    else exploreRec g2 step' (m-1) accept' reject' (lhU obj') (lhV obj') (lhX obj') (lhY obj') (lhLogL obj')  
-                                             
-                      
+                    else exploreRec g2 step' (m-1) accept' reject' (lhU obj') (lhV obj') (lhX obj') (lhY obj') (lhLogL obj')
 
+    
+-- |Evolve Lighthouse within likelihood constraint
+-- obj: Lighthouse being evolved
+-- logLstar: Likelihood constraint L > Lstar
+-- This approch runs the explore for multiple different sizes of step, choosing the best point found.
+explore_step' :: RandomGen a => a -> Lighthouse -> Double -> Lighthouse
+explore_step' ranGen obj logLstar =
+    let stepSizeRes = map stepFun [0.05, 0.08, 0.1, 0.12, 0.15]
+        stepFun step = exploreRec ranGen m accept reject (lhU obj) (lhV obj) (lhX obj) (lhY obj) (lhLogL obj) step
+            where 
+                m = 20          -- MCMC counter (pre-judged # steps)
+                accept = 0      -- # MCMC acceptances
+                reject = 0      -- # MCMC rejections
+                exploreRec ranGen m accept reject u v x y logL step =
+                    -- Trial Lighthouse
+                    let (unif1, g1) = uniform' ranGen
+                        (unif2, g2) = uniform' g1
+                        u' = wrapAround $ u + step * (2*unif1 - 1)  -- |move| < step
+                        v' = wrapAround $ v + step * (2*unif2 - 1)  -- |move| < step
+                        x' = 4*u' - 2    -- map to x
+                        y' = 2*v'        -- map to y
+                        logL' = logLhood x' y'
+
+                        -- Accept if and only if within hard likelihood constraint
+                        (accept', reject', obj')
+                            | logL' > logLstar = (accept+1, reject, Lighthouse u' v' x' y' logL' (lhLogWt obj))
+                            | otherwise = (accept, reject+1, Lighthouse u v x y logL (lhLogWt obj))
+
+                        
+                        -- Refine step-size to let acceptance ratio converge around 50%
+                        step'
+                            | accept' > reject' = step * exp(1.0 / accept')
+                            | accept' < reject' = step / exp(1.0 / reject')
+                            | otherwise = step
+                    in
+                        if m == 0
+                        then obj'
+                        else exploreRec g2 (m-1) accept' reject' (lhU obj') (lhV obj') (lhX obj') (lhY obj') (lhLogL obj') step'
+
+    in last $ sort stepSizeRes -- Use the best point found.
+                                             
                       
                       
 -- |Sample from U[0,1]
@@ -200,20 +238,66 @@ getStats samples logZ =
           xx = sum [w*(lhX s)^2 | (w,s) <- weightsSamples]
           yy = sum [w*(lhY s)^2 | (w,s) <- weightsSamples]
 
-main = do
+        
+genRandGens :: Int -> [IO StdGen] -> [IO StdGen]
+genRandGens 0 res = res
+genRandGens n res = genRandGens (n-1) ((newStdGen,newStdGen):res)
+          
+        {-  
+--test :: Int -> Int -> t -> Int -> Int -> Int
+--test :: Int -> [(b -> [a] -> (a -> Double -> a) -> Int -> NestedSamplingResult)] -> Int -> Int -> Int -> Int
+test 0 res _ _ _ = res
+test n res priorSamples explore_f maxIterations = do
+                g <- newStdGen 
+                g' <- newStdGen
+                test (n-1) ((nestedSampling' g priorSamples (explore_f g') maxIterations :: NestedSamplingResult Lighthouse):res) (priorSamples) (explore_f) (maxIterations)
+                    
+                --((nestedSampling' g priorSamples (explore_f g') maxIterations :: NestedSamplingResult Lighthouse):res)
+-}
+{-main = do
     let n = 100                -- # number of candidate lighthouses
-    let maxIterations = 1000   -- # iterates
+    let maxIterations = 10000   -- # iterates
     priorSamples <- mapM (\_ -> sampleFromPrior) [1..n]    
-    result <- nestedSampling priorSamples explore maxIterations
-    let stats = getStats (nsSamples result) (nsLogZ result) 
-    print "IO"
-    print result
-    print stats
+    --result <- nestedSampling priorSamples explore maxIterations
+    --let stats = getStats (nsSamples result) (nsLogZ result) 
+    --print "IO"
+    --print result
+    --print stats
     g <- getStdGen 
     g' <- newStdGen 
     let result' = nestedSampling' g priorSamples (explore' g') maxIterations :: NestedSamplingResult Lighthouse 
     let stats' = getStats (nsSamples result') (nsLogZ result') 
     print "Pure"
     print result'
-    print stats'
+    print stats' -}
       
+      
+main = do
+    let n = 100                -- # number of candidate lighthouses
+    let maxIterations = 1000   -- # iterates
+    priorSamples <- mapM (\_ -> sampleFromPrior) [1..n]    
+    g <- getStdGen 
+    --stdgen <- getStdGen
+    --genList :: [(stdGen, stdGen)]
+    --let genList = replicate 60 (split g)
+    --let genList = map (\_ -> split g) [1..10]
+    let genList = (genRandGens 10 [])
+    --res :: [NestedSamplingResult Lighthouse]
+    let res = map (\(g1, g2) -> nestedSampling' g1 priorSamples (explore' g2) maxIterations) genList
+
+    let result' = head res
+    let stats' = getStats (nsSamples (head res)) (nsLogZ result')
+    
+    let result2' = res !! 1
+    let stats2' = getStats (nsSamples (res !! 1)) (nsLogZ result2')
+    --g' <- newStdGen 
+    --let result' = nestedSampling' g priorSamples (explore' g') maxIterations :: NestedSamplingResult Lighthouse 
+    --let stats' = getStats (nsSamples result') (nsLogZ result') 
+    
+    --let results = nestedSampling' g priorSamples (explore' g') maxIterations :: NestedSamplingResult Lighthouse
+    print "Pure"
+    print result'
+    print stats'
+    print "Pure2"
+    print result2'
+    print stats2'
