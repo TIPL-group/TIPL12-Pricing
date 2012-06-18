@@ -300,40 +300,60 @@ tiledSkeleton conf chunk fun =
       extra   = if (divides) then [] else [num_iters conf]
       iv = zip [1,chunk+1..] ([chunk, 2*chunk .. num_iters conf] ++ extra )
   in (sum . map fun) iv
-
-tiledSkeleton_workpool :: Pricing_Data -> Integer -> ((Integer,Integer) -> SpecReal) -> SpecReal
-tiledSkeleton_workpool conf chunk fun = 
-  let divides = (num_iters conf) `mod` chunk == 0
-      extra   = if (divides) then [] else [num_iters conf]
-      iv = zip [1,chunk+1..] ([chunk, 2*chunk .. num_iters conf] ++ extra )
-   --   e = workpoolReduce (noPe) (1) (\r' r -> r + r') (0) (fun) (iv)
-      e = workpool (noPe) (20) (fun) (iv)
-  in sum e  
   
-tiledSkeleton_farm :: Pricing_Data -> Integer -> ((Integer,Integer) -> SpecReal) -> SpecReal  
-tiledSkeleton_farm conf chunk fun = 
+tiledSkeleton_seq :: Pricing_Data -> Integer -> Integer -> ((Integer,Integer) -> SpecReal) -> SpecReal
+tiledSkeleton_seq conf chunk prefetch fun = 
+  tiledSkeleton conf chunk fun
+
+tiledSkeleton_workpoolReduce :: Pricing_Data -> Integer -> Integer -> ((Integer,Integer) -> SpecReal) -> SpecReal
+tiledSkeleton_workpoolReduce conf chunk prefetch fun = 
   let divides = (num_iters conf) `mod` chunk == 0
-      extra   = if (divides) then [] else [num_iters conf]
+      extra = if (divides) then [] else [num_iters conf]
       iv = zip [1,chunk+1..] ([chunk, 2*chunk .. num_iters conf] ++ extra )
-      e = farm (splitIntoN noPe) (map sum) (fun) iv
-  in sum e
+      e = workpoolReduce_correct (noPe) (fromIntegral prefetch) (+) (0) (fun) (iv)
+  in sum e  
 
-tiledSkeleton_offlineFarm :: Pricing_Data -> Integer -> ((Integer,Integer) -> SpecReal) -> SpecReal  
-tiledSkeleton_offlineFarm conf chunk fun = 
+tiledSkeleton_workpool :: Pricing_Data -> Integer -> Integer -> ((Integer,Integer) -> SpecReal) -> SpecReal
+tiledSkeleton_workpool conf chunk prefetch fun = 
   let divides = (num_iters conf) `mod` chunk == 0
-      extra   = if (divides) then [] else [num_iters conf]
+      extra = if (divides) then [] else [num_iters conf]
       iv = zip [1,chunk+1..] ([chunk, 2*chunk .. num_iters conf] ++ extra )
-      e = offlineFarm noPe  (splitIntoN noPe ) (map sum) (fun) iv
-  in sum e
-
-tiledSkeleton_parMap :: Pricing_Data -> Integer -> ((Integer,Integer) -> SpecReal) -> SpecReal
-tiledSkeleton_parMap conf chunk fun = 
-  let divides = (num_iters conf) `mod` chunk == 0
-      extra   = if (divides) then [] else [num_iters conf]
-      iv = zip [1,chunk+1..] ([chunk, 2*chunk .. num_iters conf] ++ extra )
-  in (sum . parMap fun) iv
+      e = workpool (noPe) (fromIntegral prefetch) (fun) (iv)
+  in sum e  
 
 
+
+workpoolReduce_correct :: forall t r r' . (Trans t, Trans r, Trans r') =>
+            Int                -- ^number of child processes (workers)
+            -> Int             -- ^prefetch of tasks (for workers)
+            -> (r' -> r -> r)  -- ^reduce function
+            -> r               -- ^neutral for reduce function	    
+            -> (t -> r')       -- ^worker function (mapped to tasks) 
+            -> [t]             -- ^tasks 
+            -> [r]             -- ^results (one from each worker)
+workpoolReduce_correct = workpoolReduceAt_correct [0]
+
+workpoolReduceAt_correct :: forall t r r' . (Trans t, Trans r, Trans r') =>
+            Places
+            -> Int             -- ^number of child processes (workers)
+            -> Int             -- ^prefetch of tasks (for workers)
+            -> (r' -> r -> r)  -- ^reduce function
+            -> r               -- ^neutral for reduce function
+            -> (t -> r')       -- ^worker function (mapped to tasks) 
+            -> [t]             -- ^tasks 
+            -> [r]             -- ^results (one from each worker)
+workpoolReduceAt_correct pos np prefetch rf e wf tasks
+   = map snd fromWorkers
+    where   
+            fromWorkers :: [([Int],r)]
+            fromWorkers = spawnFAt pos (map worker [0..np-1]) taskss
+            taskss      = distribute np (initialReqs ++ newReqs) tasks
+            initialReqs = concat (replicate prefetch [0..np-1])
+            newReqs     = merge (map fst fromWorkers)
+            worker i ts = (map (\r -> rnf r `seq` i) rs, foldr rf e rs)
+                 where rs = map wf ts
+
+  
   
 sobolRecMap conf (l, u) =
   let a = sobolInd_ conf l
@@ -405,13 +425,27 @@ mc_pricing_chunk conf (lb,ub) = let payoff = product_payoff conf
 
 
 main :: IO()
-main = do args <- getArgs
-          let n = if null args then 100000 else read (head args)
+main = do 
+          args <- getArgs
+          
+          --print args
+    --let n = if null args then 100000 else read (head args)
+          let mode = (args !! 0)
+              n = read (args !! 1)
+              chunk = read (args !! 2)
+              prefetch = read (args !! 3)
+                 
               conf = example_init n -- all examples should export this name
               ------------------
               --res    = mc_pricing_farm conf      -- change relevante princing function
-              resopt = tiledSkeleton_workpool conf 32 (mc_pricing_chunk conf) 
+              --resopt = tiledSkeleton_workpool conf 32 (mc_pricing_chunk conf) 
+              resopt = case mode of
+                        "seq" -> tiledSkeleton_seq conf chunk prefetch (mc_pricing_chunk conf) 
+                        "eden" -> tiledSkeleton_workpool conf chunk prefetch (mc_pricing_chunk conf) 
+                        "reduce" -> tiledSkeleton_workpoolReduce conf chunk prefetch (mc_pricing_chunk conf) 
+                        _ -> -1
+              
           putStrLn ("Config: " ++ show n ++ " iterations")
           --putStrLn ("Computed:     " ++ show res)
           putStrLn ("Computed opt: " ++ show resopt)
-          
+      

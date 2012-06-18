@@ -1,0 +1,50 @@
+#!/bin/bash
+
+PREFETCH=(1 2 5 10 20 30)
+ITER=(20000000 10000000 5000000 1000000)
+CHUNK=(100 150 200 250 300)
+CORES=(2 4 8)
+
+
+# Seq
+echo -e "\n***Starting sequential benchmark***\n"
+ghc -O2 -XFlexibleInstances -XRecordWildCards -XRankNTypes -XScopedTypeVariables -o test MonteCarloPricing.hs 
+
+for i in ${ITER[@]} 
+do
+    for c in ${CHUNK[@]} 
+    do
+        echo -e "\n-------- Start bench --------"
+        echo "Mode: seq, Iter: ${i}, Chunk: ${c}"
+        time ./timeout3 -t 600 -i 30 -d 10 ./test seq ${i} ${c} 0
+        killall deniz=test
+        echo "-------- End bench --------"
+    done
+done
+
+
+# With Eden
+
+
+ghc -O2 -XFlexibleInstances -XRecordWildCards -XRankNTypes -XScopedTypeVariables -rtsopts -parcp -o test MonteCarloPricing.hs 
+
+echo -e "\n***Starting Eden benchmark***\n"
+for p in ${PREFETCH[@]} 
+do
+    for i in ${ITER[@]} 
+    do
+        for c in ${CHUNK[@]} 
+        do
+            for cpu in ${CORES[@]} 
+            do
+                echo -e "\n-------- Start bench --------"
+                echo "Mode: eden, Prefetch: ${p}, Iter: ${i}, Chunk: ${c}, Cpu: ${cpu}"
+                time ./timeout3 -t 600 -i 30 -d 10 ./test reduce ${i} ${c} ${p} +RTS -N${cpu}
+                killall deniz=test
+                #time ./test eden ${i} ${c} ${p} +RTS -N${cpu}
+                echo "-------- End bench --------"
+            done
+        done
+    done
+done
+
