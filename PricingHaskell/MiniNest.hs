@@ -3,7 +3,7 @@ module MiniNest where
 import Control.Monad (forM)
 import Data.IORef
 import Data.List (sort)
-import System.Random (RandomGen, randomR, randomRIO)
+import System.Random (RandomGen, randomR, randomRIO, split)
 import Text.Printf
 import Debug.Trace
 
@@ -101,6 +101,7 @@ nestedSampling' ranGen priorSamples explore iterations =
             nsSamples = samplesRef res
         }
 
+        
 -- |choice chooses uniformly at random from a list.    
 choice' :: RandomGen  b => b -> [a] -> (a, b)
 choice' ranGen [x] = (x, ranGen)
